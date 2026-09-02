@@ -1,0 +1,9 @@
+Django>=2.2,<4.0
+djangorestframework>=3.12,<4.0
+django-cors-headers>=3.10,<5.0
+mysqlclient>=2.1,<3.0
+Pillow>=8.0
+django-bootstrap4>=2.3
+python-dotenv>=1.0
+gunicorn>=21.0,<24.0
+whitenoise>=6.0,<7.0
