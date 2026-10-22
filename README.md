@@ -36,7 +36,7 @@
 ### 🎨 Modern, Responsive User Interface
 - **Polished SaaS Aesthetics**: Crafted with modern CSS styling, typography, and Feather SVG iconography (`react-icons/fi`).
 - **Fluid Micro-Interactions**: Smooth card hover elevations, stagger entrance transitions, and modal animations powered by **Framer Motion**.
-- **Intuitive Navigation**: Persistent header with dynamic search, quick action pills, location indicators, and mobile-friendly drawer menu.
+- **Intuitive Navigation**: Persistent header with dynamic search, quick action pills, location indicators, and mobile-friendly drawer menu alex_trader pass- alex12345.
 - **Scroll Restoration**: Automatic viewport scroll restoration ensuring users land directly at the top when navigating across pages or opening listing details.
 
 ### 🏷️ Smart Catalog & Dynamic Categories
