@@ -10,7 +10,13 @@ class Category(models.Model):
 
     def save(self, *args, **kwargs):
         if not self.slug and self.category_name:
-            self.slug = slugify(self.category_name)
+            base_slug = slugify(self.category_name) or 'cat'
+            slug = base_slug
+            counter = 1
+            while Category.objects.filter(slug=slug).exclude(id=self.id).exists():
+                slug = f"{base_slug}-{counter}"
+                counter += 1
+            self.slug = slug
         super(Category, self).save(*args, **kwargs)
 
     class Meta:
@@ -58,7 +64,13 @@ class Product(models.Model):
 
     def save(self, *args, **kwargs):
         if not self.slug and self.name:
-            self.slug = slugify(self.name)
+            base_slug = slugify(self.name) or 'item'
+            slug = base_slug
+            counter = 1
+            while Product.objects.filter(slug=slug).exclude(id=self.id).exists():
+                slug = f"{base_slug}-{counter}"
+                counter += 1
+            self.slug = slug
         super(Product, self).save(*args, **kwargs)
 
     def __str__(self):
@@ -128,6 +140,7 @@ class Wishlist(models.Model):
 
     class Meta:
         unique_together = ('user', 'product')
+        ordering = ['-created']
 
     def __str__(self):
         return f"{self.user.username} - {self.product.name}"

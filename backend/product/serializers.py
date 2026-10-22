@@ -153,16 +153,46 @@ class ProductDetailSerializer(serializers.ModelSerializer):
 
 
 class ProductCreateSerializer(serializers.ModelSerializer):
+    id = serializers.IntegerField(read_only=True)
+    slug = serializers.CharField(read_only=True)
+    owner = UserSerializer(read_only=True)
+    other_category = serializers.CharField(write_only=True, required=False, allow_blank=True)
+
     class Meta:
         model = Product
         fields = [
-            'name', 'description', 'condition', 'category',
-            'brand', 'price', 'quantity', 'image', 'location',
+            'id', 'slug', 'owner', 'name', 'description', 'condition', 'category',
+            'brand', 'price', 'quantity', 'image', 'location', 'status', 'other_category',
         ]
 
+    def validate(self, attrs):
+        if 'category' in attrs and (attrs['category'] == '' or attrs['category'] == 0):
+            attrs['category'] = None
+        if 'brand' in attrs and (attrs['brand'] == '' or attrs['brand'] == 0):
+            attrs['brand'] = None
+        return attrs
+
     def create(self, validated_data):
+        other_cat_name = validated_data.pop('other_category', None)
+        if other_cat_name and str(other_cat_name).strip() and not validated_data.get('category'):
+            name = str(other_cat_name).strip()
+            cat = Category.objects.filter(category_name__iexact=name).first()
+            if not cat:
+                cat = Category.objects.create(category_name=name)
+            validated_data['category'] = cat
+
         validated_data['owner'] = self.context['request'].user
         return super().create(validated_data)
+
+    def update(self, instance, validated_data):
+        other_cat_name = validated_data.pop('other_category', None)
+        if other_cat_name and str(other_cat_name).strip():
+            name = str(other_cat_name).strip()
+            cat = Category.objects.filter(category_name__iexact=name).first()
+            if not cat:
+                cat = Category.objects.create(category_name=name)
+            validated_data['category'] = cat
+        return super().update(instance, validated_data)
 
 
 class MessageSerializer(serializers.ModelSerializer):
@@ -229,6 +259,14 @@ class WishlistSerializer(serializers.ModelSerializer):
     class Meta:
         model = Wishlist
         fields = ['id', 'product', 'product_id', 'created']
+
+    def create(self, validated_data):
+        product_id = validated_data.pop('product_id')
+        from django.shortcuts import get_object_or_404
+        product = get_object_or_404(Product, id=product_id)
+        user = validated_data.get('user', self.context['request'].user)
+        wishlist_item, _ = Wishlist.objects.get_or_create(user=user, product=product)
+        return wishlist_item
 
 
 class NotificationSerializer(serializers.ModelSerializer):

@@ -1,6 +1,10 @@
 import { useState, useEffect, useRef } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useNavigate, useParams, Link } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
+import { 
+  FiSend, FiImage, FiX, FiCheck, 
+  FiSearch, FiArrowLeft, FiMessageSquare, FiExternalLink, FiPackage 
+} from 'react-icons/fi'
 import { conversationsAPI } from '../services/api'
 import { useAuth } from '../context/AuthContext'
 
@@ -8,6 +12,7 @@ export default function Messages() {
   const { conversationId } = useParams()
   const navigate = useNavigate()
   const { user } = useAuth()
+
   const [conversations, setConversations] = useState([])
   const [activeConversation, setActiveConversation] = useState(null)
   const [messages, setMessages] = useState([])
@@ -15,7 +20,10 @@ export default function Messages() {
   const [selectedImage, setSelectedImage] = useState(null)
   const [imagePreview, setImagePreview] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [messagesLoading, setMessagesLoading] = useState(false)
   const [sending, setSending] = useState(false)
+  const [searchTerm, setSearchTerm] = useState('')
+
   const messagesEndRef = useRef(null)
   const fileInputRef = useRef(null)
 
@@ -24,50 +32,58 @@ export default function Messages() {
   }, [])
 
   useEffect(() => {
-    if (conversationId) {
-      const conv = conversations.find(c => c.id === parseInt(conversationId))
+    if (conversationId && conversations.length > 0) {
+      const conv = conversations.find(c => String(c.id) === String(conversationId))
       if (conv) {
         setActiveConversation(conv)
-        fetchMessages(conversationId)
+        fetchMessages(conv.id)
       }
+    } else if (!conversationId && conversations.length > 0 && !activeConversation) {
+      // Auto-select first conversation
+      setActiveConversation(conversations[0])
+      fetchMessages(conversations[0].id)
     }
   }, [conversationId, conversations])
 
   useEffect(() => {
-    if (messagesEndRef.current) {
-      messagesEndRef.current.scrollIntoView({ behavior: 'smooth', block: 'end' })
-    }
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
   const fetchConversations = async () => {
     try {
       const res = await conversationsAPI.getAll()
-      setConversations(res.data.results || res.data)
+      const convList = res.data.results || res.data
+      setConversations(convList)
     } catch (err) {
-      console.error('Failed to fetch conversations:', err)
+      console.error(err)
     } finally {
       setLoading(false)
     }
   }
 
   const fetchMessages = async (convId) => {
+    setMessagesLoading(true)
     try {
       const res = await conversationsAPI.getMessages(convId)
       setMessages(res.data)
       await conversationsAPI.markRead(convId)
     } catch (err) {
-      console.error('Failed to fetch messages:', err)
+      console.error(err)
+    } finally {
+      setMessagesLoading(false)
     }
   }
 
   const handleSelectConversation = (conv) => {
+    setActiveConversation(conv)
     navigate(`/messages/${conv.id}`)
+    fetchMessages(conv.id)
   }
 
   const handleImageSelect = (e) => {
     const file = e.target.files[0]
     if (file) {
-      setSelectedImage(file)
+      setSelectedFile(file)
       const reader = new FileReader()
       reader.onloadend = () => setImagePreview(reader.result)
       reader.readAsDataURL(file)
@@ -91,7 +107,7 @@ export default function Messages() {
       await fetchMessages(activeConversation.id)
       await fetchConversations()
     } catch (err) {
-      console.error('Failed to send message:', err)
+      console.error(err)
       setMessageInput(text)
       setSelectedImage(image)
     } finally {
@@ -99,295 +115,631 @@ export default function Messages() {
     }
   }
 
-  const handleDeleteMessage = async (messageId) => {
-    if (!window.confirm('Delete this message?')) return
-    try {
-      await conversationsAPI.deleteMessage(activeConversation.id, messageId)
-      await fetchMessages(activeConversation.id)
-      await fetchConversations()
-    } catch (err) {
-      console.error('Failed to delete message:', err)
-    }
-  }
-
-  const handleKeyPress = (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault()
-      handleSendMessage(e)
-    }
-  }
-
-  const getOtherUser = (conv) => {
-    if (!conv || !user) return null
-    return conv.other_user
-  }
-
-  const formatTime = (dateStr) => {
-    const date = new Date(dateStr)
-    const now = new Date()
-    const diffDays = Math.floor((now - date) / (1000 * 60 * 60 * 24))
-    if (diffDays === 0) {
-      return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-    } else if (diffDays === 1) {
-      return 'Yesterday'
-    } else if (diffDays < 7) {
-      return date.toLocaleDateString([], { weekday: 'short' })
-    }
-    return date.toLocaleDateString([], { month: 'short', day: 'numeric' })
-  }
-
-  if (loading) {
-    return <div className="loading-spinner"><div className="spinner" /></div>
-  }
+  const filteredConversations = conversations.filter(c => {
+    const name = c.other_user?.username || ''
+    const prodName = c.product?.name || ''
+    return name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+           prodName.toLowerCase().includes(searchTerm.toLowerCase())
+  })
 
   return (
     <div className="container" style={styles.page}>
-      <motion.h2
-        style={styles.title}
-        initial={{ opacity: 0, y: -20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5 }}
-      >
-        Messages
-      </motion.h2>
-      <div style={styles.layout}>
-        <motion.div
-          style={styles.sidebar}
-          initial={{ opacity: 0, x: -30 }}
-          animate={{ opacity: 1, x: 0 }}
-          transition={{ duration: 0.5, delay: 0.1 }}
-        >
-          {conversations.length === 0 ? (
-            <div style={styles.emptySidebar}>
-              <p>No messages yet.</p>
-              <p style={styles.emptyHint}>Contact a seller to start a conversation.</p>
+      <div style={styles.chatWrapper}>
+        {/* Left Side: Conversations List */}
+        <aside style={styles.sidebar}>
+          <div style={styles.sidebarHeader}>
+            <h2 style={styles.sidebarTitle}>Messages</h2>
+            <div style={styles.searchBar}>
+              <FiSearch style={{ color: '#94a3b8' }} />
+              <input
+                type="text"
+                placeholder="Search chats or items..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                style={styles.searchInput}
+              />
             </div>
-          ) : (
-            conversations.map((conv, index) => (
-              <motion.div
-                key={conv.id}
-                onClick={() => handleSelectConversation(conv)}
-                style={{
-                  ...styles.conversationItem,
-                  ...(activeConversation?.id === conv.id ? styles.activeConversation : {})
-                }}
-                initial={{ opacity: 0, x: -20 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: index * 0.05 }}
-                whileHover={{ backgroundColor: '#f8f9fa' }}
-              >
-                <div style={styles.convContent}>
-                  <div style={styles.convHeader}>
-                    <span style={styles.convName}>{getOtherUser(conv)?.username || 'Unknown'}</span>
-                    <span style={styles.convTime}>{conv.last_message ? formatTime(conv.last_message.created) : ''}</span>
-                  </div>
-                  <div style={styles.convProduct}>{conv.product?.name}</div>
-                  <div style={styles.convLastMessage}>
-                    {conv.last_message?.message || (conv.last_message?.image ? '📷 Photo' : 'No messages yet')}
-                  </div>
-                </div>
-                <AnimatePresence>
-                  {conv.unread_count > 0 && (
-                    <motion.span
-                      style={styles.unreadBadge}
-                      initial={{ scale: 0 }}
-                      animate={{ scale: 1 }}
-                      exit={{ scale: 0 }}
-                      transition={{ type: 'spring', stiffness: 500 }}
-                    >
-                      {conv.unread_count}
-                    </motion.span>
-                  )}
-                </AnimatePresence>
-              </motion.div>
-            ))
-          )}
-        </motion.div>
+          </div>
 
-        <motion.div
-          style={styles.chatArea}
-          initial={{ opacity: 0, x: 30 }}
-          animate={{ opacity: 1, x: 0 }}
-          transition={{ duration: 0.5, delay: 0.2 }}
-        >
+          <div style={styles.convList}>
+            {loading ? (
+              <div style={{ padding: '30px', textAlign: 'center', color: '#94a3b8' }}>
+                Loading conversations...
+              </div>
+            ) : filteredConversations.length === 0 ? (
+              <div style={{ padding: '40px 20px', textAlign: 'center', color: '#94a3b8' }}>
+                <FiMessageSquare style={{ fontSize: '32px', marginBottom: '8px', opacity: 0.5 }} />
+                <p style={{ fontSize: '13px' }}>No conversations yet.</p>
+              </div>
+            ) : (
+              filteredConversations.map((conv) => {
+                const isActive = activeConversation?.id === conv.id
+                return (
+                  <button
+                    key={conv.id}
+                    onClick={() => handleSelectConversation(conv)}
+                    style={{
+                      ...styles.convItem,
+                      backgroundColor: isActive ? '#f0fdfa' : 'transparent',
+                      borderLeftColor: isActive ? '#00a49f' : 'transparent',
+                    }}
+                    type="button"
+                  >
+                    <div style={styles.avatar}>
+                      {conv.other_user?.username?.charAt(0).toUpperCase() || 'U'}
+                    </div>
+
+                    <div style={styles.convDetails}>
+                      <div style={styles.convTopRow}>
+                        <span style={styles.convUsername}>
+                          {conv.other_user?.username || 'User'}
+                        </span>
+                        {conv.last_message && (
+                          <span style={styles.convTime}>
+                            {new Date(conv.last_message.created).toLocaleTimeString([], {
+                              hour: '2-digit',
+                              minute: '2-digit',
+                            })}
+                          </span>
+                        )}
+                      </div>
+
+                      <div style={styles.convProductTag}>
+                        <FiPackage style={{ fontSize: '12px', marginRight: '4px' }} />
+                        <span>{conv.product?.name || 'Item'}</span>
+                      </div>
+
+                      <div style={styles.convBottomRow}>
+                        <span style={styles.lastMsgText}>
+                          {conv.last_message ? conv.last_message.message : 'No messages yet'}
+                        </span>
+                        {conv.unread_count > 0 && (
+                          <span style={styles.unreadBadge}>{conv.unread_count}</span>
+                        )}
+                      </div>
+                    </div>
+                  </button>
+                )
+              })
+            )}
+          </div>
+        </aside>
+
+        {/* Right Side: Active Chat */}
+        <main style={styles.chatMain}>
           {activeConversation ? (
             <>
-              <motion.div
-                style={styles.chatHeader}
-                initial={{ opacity: 0, y: -10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.3 }}
-              >
-                <div>
-                  <strong>{getOtherUser(activeConversation)?.username}</strong>
-                  <div style={styles.chatProduct}>{activeConversation.product?.name}</div>
+              {/* Chat Top Bar with other user and product banner */}
+              <div style={styles.chatHeader}>
+                <div style={styles.chatHeaderUser}>
+                  <div style={styles.avatarLarge}>
+                    {activeConversation.other_user?.username?.charAt(0).toUpperCase() || 'U'}
+                  </div>
+                  <div>
+                    <h3 style={styles.activeUsername}>
+                      {activeConversation.other_user?.username}
+                    </h3>
+                    <span style={styles.activeStatusTag}>
+                      <span style={styles.statusDot} /> Active Deal Contact
+                    </span>
+                  </div>
                 </div>
-              </motion.div>
 
-              <div style={styles.messagesList}>
-                <AnimatePresence>
-                  {messages.length === 0 ? (
-                    <div style={styles.noMessages}>No messages yet. Start the conversation!</div>
-                  ) : (
-                    messages.map((msg, index) => (
-                      <motion.div
+                {/* Product mini card */}
+                {activeConversation.product && (
+                  <Link
+                    to={`/products/${activeConversation.product.slug}`}
+                    style={styles.productBanner}
+                    title="View Product"
+                  >
+                    {activeConversation.product.image_url ? (
+                      <img
+                        src={activeConversation.product.image_url}
+                        alt=""
+                        style={styles.bannerImg}
+                      />
+                    ) : (
+                      <div style={styles.bannerImgPlaceholder}>
+                        <FiPackage style={{ fontSize: '18px', color: '#94a3b8' }} />
+                      </div>
+                    )}
+                    <div style={{ minWidth: 0 }}>
+                      <p style={styles.bannerTitle}>{activeConversation.product.name}</p>
+                      <p style={styles.bannerPrice}>₹{Number(activeConversation.product.price).toLocaleString('en-IN')}</p>
+                    </div>
+                    <FiExternalLink style={{ color: '#00a49f', marginLeft: '6px' }} />
+                  </Link>
+                )}
+              </div>
+
+              {/* Messages Stream */}
+              <div style={styles.messagesStream}>
+                {messagesLoading ? (
+                  <div style={{ textAlign: 'center', padding: '40px', color: '#94a3b8' }}>
+                    Loading messages...
+                  </div>
+                ) : messages.length === 0 ? (
+                  <div style={styles.emptyChatPrompt}>
+                    <FiMessageSquare style={{ fontSize: '32px', color: '#00a49f', marginBottom: '8px' }} />
+                    <p style={{ fontWeight: 600, color: '#002f34' }}>
+                      Say hello to {activeConversation.other_user?.username}!
+                    </p>
+                    <p style={{ fontSize: '12.5px', color: '#64748b' }}>
+                      Ask questions, verify details, and discuss meeting locations safely.
+                    </p>
+                  </div>
+                ) : (
+                  messages.map((msg) => {
+                    const isMe = msg.sender_id === user?.id
+                    return (
+                      <div
                         key={msg.id}
                         style={{
-                          ...styles.messageBubble,
-                          ...(msg.sender_id === user?.id ? styles.myMessage : styles.theirMessage)
+                          ...styles.messageRow,
+                          justifyContent: isMe ? 'flex-end' : 'flex-start',
                         }}
-                        initial={{ opacity: 0, y: 20, scale: 0.95 }}
-                        animate={{ opacity: 1, y: 0, scale: 1 }}
-                        exit={{ opacity: 0, scale: 0.95 }}
-                        transition={{ duration: 0.3, delay: index * 0.02 }}
                       >
-                        {msg.image_url && (
-                          <motion.img
-                            src={msg.image_url}
-                            alt=""
-                            style={styles.messageImage}
-                            whileHover={{ scale: 1.02 }}
-                          />
-                        )}
-                        {msg.message && <div style={styles.messageText}>{msg.message}</div>}
-                        <div style={styles.messageFooter}>
-                          <span style={styles.messageTime}>{formatTime(msg.created)}</span>
-                          {msg.sender_id === user?.id && (
-                            <motion.button
-                              onClick={() => handleDeleteMessage(msg.id)}
-                              style={styles.deleteBtn}
-                              title="Delete message"
-                              whileHover={{ scale: 1.2 }}
-                              whileTap={{ scale: 0.8 }}
-                            >
-                              🗑️
-                            </motion.button>
+                        <div
+                          style={{
+                            ...styles.messageBubble,
+                            backgroundColor: isMe ? '#002f34' : '#ffffff',
+                            color: isMe ? '#ffffff' : '#0f172a',
+                            borderBottomRightRadius: isMe ? '4px' : '16px',
+                            borderBottomLeftRadius: isMe ? '16px' : '4px',
+                            boxShadow: isMe
+                              ? '0 4px 12px rgba(0, 47, 52, 0.15)'
+                              : '0 2px 8px rgba(0, 0, 0, 0.05)',
+                          }}
+                        >
+                          {msg.image_url && (
+                            <img
+                              src={msg.image_url}
+                              alt="Attachment"
+                              style={styles.messageImageAttachment}
+                            />
                           )}
+                          {msg.message && <p style={styles.messageText}>{msg.message}</p>}
+                          <div
+                            style={{
+                              ...styles.messageMeta,
+                              color: isMe ? 'rgba(255, 255, 255, 0.7)' : '#94a3b8',
+                            }}
+                          >
+                            <span>
+                              {new Date(msg.created).toLocaleTimeString([], {
+                                hour: '2-digit',
+                                minute: '2-digit',
+                              })}
+                            </span>
+                            {isMe && (
+                              <FiCheck
+                                style={{
+                                  fontSize: '13px',
+                                  color: msg.is_read ? '#5eead4' : 'rgba(255,255,255,0.6)',
+                                }}
+                              />
+                            )}
+                          </div>
                         </div>
-                      </motion.div>
-                    ))
-                  )}
-                </AnimatePresence>
+                      </div>
+                    )
+                  })
+                )}
                 <div ref={messagesEndRef} />
               </div>
 
-              <AnimatePresence>
+              {/* Chat Input Bar */}
+              <div style={styles.inputArea}>
+                {/* Image preview chip */}
                 {imagePreview && (
-                  <motion.div
-                    style={styles.imagePreview}
-                    initial={{ opacity: 0, height: 0 }}
-                    animate={{ opacity: 1, height: 'auto' }}
-                    exit={{ opacity: 0, height: 0 }}
-                  >
-                    <img src={imagePreview} alt="Preview" style={styles.previewImage} />
-                    <motion.button
-                      onClick={() => { setSelectedImage(null); setImagePreview(null); if (fileInputRef.current) fileInputRef.current.value = '' }}
-                      style={styles.removeImageBtn}
-                      whileHover={{ scale: 1.1 }}
-                      whileTap={{ scale: 0.9 }}
+                  <div style={styles.imagePreviewChip}>
+                    <img src={imagePreview} alt="Preview" style={styles.chipImg} />
+                    <span>Image attached</span>
+                    <button
+                      onClick={() => {
+                        setSelectedImage(null)
+                        setImagePreview(null)
+                      }}
+                      style={styles.chipRemoveBtn}
+                      type="button"
                     >
-                      ✕
-                    </motion.button>
-                  </motion.div>
+                      <FiX />
+                    </button>
+                  </div>
                 )}
-              </AnimatePresence>
 
-              <motion.form
-                onSubmit={handleSendMessage}
-                style={styles.messageForm}
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.3 }}
-              >
-                <input
-                  type="file"
-                  ref={fileInputRef}
-                  accept="image/*"
-                  onChange={handleImageSelect}
-                  style={{ display: 'none' }}
-                />
-                <motion.button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  style={styles.imageBtn}
-                  whileHover={{ scale: 1.1 }}
-                  whileTap={{ scale: 0.9 }}
-                >
-                  📷
-                </motion.button>
-                <input
-                  type="text"
-                  value={messageInput}
-                  onChange={(e) => setMessageInput(e.target.value)}
-                  onKeyPress={handleKeyPress}
-                  placeholder="Type a message..."
-                  style={styles.messageInput}
-                  disabled={sending}
-                />
-                <motion.button
-                  type="submit"
-                  disabled={sending || (!messageInput.trim() && !selectedImage)}
-                  style={styles.sendBtn}
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                >
-                  {sending ? '...' : 'Send'}
-                </motion.button>
-              </motion.form>
+                <form onSubmit={handleSendMessage} style={styles.chatForm}>
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    style={styles.attachBtn}
+                    title="Attach Photo"
+                  >
+                    <FiImage style={{ fontSize: '18px' }} />
+                  </button>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    onChange={handleImageSelect}
+                    style={{ display: 'none' }}
+                  />
+
+                  <input
+                    type="text"
+                    placeholder="Type your message here..."
+                    value={messageInput}
+                    onChange={(e) => setMessageInput(e.target.value)}
+                    style={styles.chatInput}
+                  />
+
+                  <motion.button
+                    type="submit"
+                    style={{
+                      ...styles.sendBtn,
+                      opacity: messageInput.trim() || selectedImage ? 1 : 0.6,
+                    }}
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    disabled={sending || (!messageInput.trim() && !selectedImage)}
+                  >
+                    <FiSend style={{ fontSize: '16px' }} />
+                  </motion.button>
+                </form>
+              </div>
             </>
           ) : (
-            <motion.div
-              style={styles.noChatSelected}
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ duration: 0.5 }}
-            >
-              <div style={styles.noChatIcon}>&#128172;</div>
-              <p>Select a conversation to start messaging</p>
-            </motion.div>
+            <div style={styles.noConvSelected}>
+              <FiMessageSquare style={{ fontSize: '56px', color: '#cbd5e1', marginBottom: '16px' }} />
+              <h3 style={{ fontSize: '18px', fontWeight: 800, color: '#002f34', marginBottom: '6px' }}>
+                Select a conversation
+              </h3>
+              <p style={{ fontSize: '14px', color: '#64748b' }}>
+                Choose a conversation from the left to view messages and chat with sellers
+              </p>
+            </div>
           )}
-        </motion.div>
+        </main>
       </div>
     </div>
   )
 }
 
 const styles = {
-  page: { paddingTop: '24px', paddingBottom: '24px' },
-  title: { fontSize: '24px', fontWeight: 700, marginBottom: '20px', color: '#1a1a2e' },
-  layout: { display: 'flex', gap: '20px', height: 'calc(100vh - 180px)', minHeight: '500px' },
-  sidebar: { width: '300px', backgroundColor: '#fff', borderRadius: '12px', overflow: 'auto', boxShadow: '0 1px 4px rgba(0,0,0,0.1)', flexShrink: 0 },
-  emptySidebar: { padding: '40px 20px', textAlign: 'center', color: '#636e72' },
-  emptyHint: { fontSize: '13px', marginTop: '8px', color: '#b2bec3' },
-  conversationItem: { padding: '14px 16px', borderBottom: '1px solid #f0f0f0', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' },
-  activeConversation: { backgroundColor: '#f8f9fa' },
-  convContent: { flex: 1, minWidth: 0 },
-  convHeader: { display: 'flex', justifyContent: 'space-between', marginBottom: '4px' },
-  convName: { fontWeight: 600, fontSize: '14px', color: '#1a1a2e' },
-  convTime: { fontSize: '11px', color: '#b2bec3' },
-  convProduct: { fontSize: '12px', color: '#636e72', marginBottom: '4px' },
-  convLastMessage: { fontSize: '13px', color: '#636e72', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
-  unreadBadge: { backgroundColor: '#e94560', color: '#fff', padding: '2px 8px', borderRadius: '10px', fontSize: '11px', fontWeight: 700, marginLeft: '8px' },
-  chatArea: { flex: 1, backgroundColor: '#fff', borderRadius: '12px', display: 'flex', flexDirection: 'column', boxShadow: '0 1px 4px rgba(0,0,0,0.1)', overflow: 'hidden' },
-  chatHeader: { padding: '14px 20px', borderBottom: '1px solid #f0f0f0', backgroundColor: '#1a1a2e', color: '#fff' },
-  chatProduct: { fontSize: '13px', color: '#b2bec3', marginTop: '2px' },
-  messagesList: { flex: 1, overflow: 'auto', padding: '20px', display: 'flex', flexDirection: 'column', gap: '10px', backgroundColor: '#f8f9fa' },
-  noMessages: { textAlign: 'center', color: '#b2bec3', padding: '40px 0' },
-  messageBubble: { maxWidth: '70%', padding: '10px 14px', borderRadius: '16px', wordWrap: 'break-word' },
-  myMessage: { alignSelf: 'flex-end', backgroundColor: '#e94560', color: '#fff', borderBottomRightRadius: '4px' },
-  theirMessage: { alignSelf: 'flex-start', backgroundColor: '#e9ecef', color: '#1a1a2e', borderBottomLeftRadius: '4px' },
-  messageText: { fontSize: '14px', lineHeight: 1.4 },
-  messageImage: { maxWidth: '200px', maxHeight: '200px', borderRadius: '8px', marginBottom: '4px', cursor: 'pointer' },
-  messageFooter: { display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px' },
-  messageTime: { fontSize: '10px', opacity: 0.7 },
-  deleteBtn: { background: 'none', fontSize: '12px', cursor: 'pointer', opacity: 0.7, padding: '2px' },
-  imagePreview: { position: 'relative', padding: '10px 20px', backgroundColor: '#fff', borderTop: '1px solid #f0f0f0' },
-  previewImage: { maxWidth: '100px', maxHeight: '100px', borderRadius: '8px' },
-  removeImageBtn: { position: 'absolute', top: '10px', left: '120px', backgroundColor: '#e94560', color: '#fff', borderRadius: '50%', width: '24px', height: '24px', fontSize: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center' },
-  messageForm: { display: 'flex', gap: '10px', padding: '14px 20px', borderTop: '1px solid #f0f0f0', backgroundColor: '#fff' },
-  imageBtn: { backgroundColor: '#f8f9fa', padding: '10px 14px', borderRadius: '20px', fontSize: '18px' },
-  messageInput: { flex: 1, padding: '10px 16px', border: '2px solid #e9ecef', borderRadius: '20px', fontSize: '14px', backgroundColor: '#f8f9fa' },
-  sendBtn: { backgroundColor: '#e94560', color: '#fff', padding: '10px 20px', borderRadius: '20px', fontWeight: 700, fontSize: '14px', boxShadow: '0 4px 15px rgba(233, 69, 96, 0.3)' },
-  noChatSelected: { flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#b2bec3' },
-  noChatIcon: { fontSize: '48px', marginBottom: '16px', opacity: 0.5 },
+  page: {
+    paddingTop: '24px',
+    paddingBottom: '40px',
+  },
+  chatWrapper: {
+    display: 'flex',
+    backgroundColor: '#ffffff',
+    borderRadius: '20px',
+    border: '1px solid #e2e8f0',
+    boxShadow: '0 8px 30px rgba(0, 0, 0, 0.05)',
+    height: '78vh',
+    minHeight: '560px',
+    overflow: 'hidden',
+  },
+  sidebar: {
+    width: '340px',
+    borderRight: '1px solid #e2e8f0',
+    display: 'flex',
+    flexDirection: 'column',
+    backgroundColor: '#ffffff',
+    flexShrink: 0,
+  },
+  sidebarHeader: {
+    padding: '20px 18px',
+    borderBottom: '1px solid #f1f5f9',
+  },
+  sidebarTitle: {
+    fontSize: '20px',
+    fontWeight: '800',
+    color: '#002f34',
+    marginBottom: '12px',
+  },
+  searchBar: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    backgroundColor: '#f8fafc',
+    border: '1.5px solid #e2e8f0',
+    borderRadius: '10px',
+    padding: '8px 12px',
+  },
+  searchInput: {
+    border: 'none',
+    backgroundColor: 'transparent',
+    fontSize: '13px',
+    color: '#0f172a',
+    width: '100%',
+  },
+  convList: {
+    flex: 1,
+    overflowY: 'auto',
+  },
+  convItem: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '12px',
+    padding: '14px 16px',
+    width: '100%',
+    textAlign: 'left',
+    borderBottom: '1px solid #f8fafc',
+    borderLeft: '3px solid transparent',
+    transition: 'all 0.15s',
+  },
+  avatar: {
+    width: '42px',
+    height: '42px',
+    borderRadius: '12px',
+    background: 'linear-gradient(135deg, #002f34 0%, #00a49f 100%)',
+    color: '#fff',
+    fontWeight: '800',
+    fontSize: '16px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  convDetails: {
+    flex: 1,
+    minWidth: 0,
+  },
+  convTopRow: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'baseline',
+    marginBottom: '2px',
+  },
+  convUsername: {
+    fontSize: '14px',
+    fontWeight: '700',
+    color: '#0f172a',
+  },
+  convTime: {
+    fontSize: '11px',
+    color: '#94a3b8',
+  },
+  convProductTag: {
+    fontSize: '11px',
+    color: '#00a49f',
+    fontWeight: '600',
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    marginBottom: '2px',
+  },
+  convBottomRow: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  lastMsgText: {
+    fontSize: '12.5px',
+    color: '#64748b',
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+  },
+  unreadBadge: {
+    backgroundColor: '#ff5630',
+    color: '#fff',
+    fontSize: '10px',
+    fontWeight: '800',
+    padding: '2px 6px',
+    borderRadius: '999px',
+    marginLeft: '6px',
+  },
+  chatMain: {
+    flex: 1,
+    display: 'flex',
+    flexDirection: 'column',
+    backgroundColor: '#f8fafc',
+  },
+  chatHeader: {
+    padding: '14px 20px',
+    backgroundColor: '#ffffff',
+    borderBottom: '1px solid #e2e8f0',
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: '12px',
+  },
+  chatHeaderUser: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '12px',
+  },
+  avatarLarge: {
+    width: '42px',
+    height: '42px',
+    borderRadius: '12px',
+    backgroundColor: '#00a49f',
+    color: '#fff',
+    fontWeight: '800',
+    fontSize: '16px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  activeUsername: {
+    fontSize: '15px',
+    fontWeight: '800',
+    color: '#002f34',
+  },
+  activeStatusTag: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '6px',
+    fontSize: '11.5px',
+    color: '#15803d',
+    fontWeight: '600',
+  },
+  statusDot: {
+    width: '6px',
+    height: '6px',
+    borderRadius: '50%',
+    backgroundColor: '#10b981',
+    boxShadow: '0 0 5px #10b981',
+  },
+  productBanner: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '10px',
+    padding: '6px 12px',
+    borderRadius: '12px',
+    backgroundColor: '#f0fdfa',
+    border: '1px solid #ccfbf1',
+    maxWidth: '280px',
+    textDecoration: 'none',
+  },
+  bannerImg: {
+    width: '36px',
+    height: '36px',
+    borderRadius: '6px',
+    objectFit: 'cover',
+    flexShrink: 0,
+  },
+  bannerImgPlaceholder: {
+    width: '36px',
+    height: '36px',
+    borderRadius: '6px',
+    backgroundColor: '#e2e8f0',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontSize: '16px',
+    flexShrink: 0,
+  },
+  bannerTitle: {
+    fontSize: '12px',
+    fontWeight: '700',
+    color: '#0f172a',
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+  },
+  bannerPrice: {
+    fontSize: '11.5px',
+    fontWeight: '800',
+    color: '#00a49f',
+  },
+  messagesStream: {
+    flex: 1,
+    overflowY: 'auto',
+    padding: '24px',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '12px',
+  },
+  emptyChatPrompt: {
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    margin: 'auto',
+    textAlign: 'center',
+    fontSize: '36px',
+    gap: '6px',
+  },
+  messageRow: {
+    display: 'flex',
+  },
+  messageBubble: {
+    maxWidth: '65%',
+    padding: '12px 16px',
+    borderRadius: '16px',
+  },
+  messageText: {
+    fontSize: '14px',
+    lineHeight: '1.45',
+    wordBreak: 'break-word',
+  },
+  messageImageAttachment: {
+    maxWidth: '240px',
+    maxHeight: '180px',
+    borderRadius: '8px',
+    marginBottom: '6px',
+    objectFit: 'cover',
+  },
+  messageMeta: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: '4px',
+    fontSize: '10.5px',
+    marginTop: '4px',
+  },
+  inputArea: {
+    padding: '16px 20px',
+    backgroundColor: '#ffffff',
+    borderTop: '1px solid #e2e8f0',
+  },
+  imagePreviewChip: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '8px',
+    backgroundColor: '#f1f5f9',
+    padding: '4px 10px',
+    borderRadius: '8px',
+    marginBottom: '8px',
+    fontSize: '12px',
+  },
+  chipImg: {
+    width: '24px',
+    height: '24px',
+    borderRadius: '4px',
+    objectFit: 'cover',
+  },
+  chipRemoveBtn: {
+    color: '#ef4444',
+    display: 'flex',
+    alignItems: 'center',
+  },
+  chatForm: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '10px',
+  },
+  attachBtn: {
+    width: '42px',
+    height: '42px',
+    borderRadius: '10px',
+    backgroundColor: '#f1f5f9',
+    color: '#64748b',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    transition: 'background 0.15s',
+  },
+  chatInput: {
+    flex: 1,
+    padding: '12px 16px',
+    borderRadius: '12px',
+    border: '1.5px solid #e2e8f0',
+    backgroundColor: '#f8fafc',
+    fontSize: '14px',
+    color: '#0f172a',
+  },
+  sendBtn: {
+    width: '42px',
+    height: '42px',
+    borderRadius: '10px',
+    background: 'linear-gradient(135deg, #002f34 0%, #00a49f 100%)',
+    color: '#ffffff',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    boxShadow: '0 4px 10px rgba(0, 164, 159, 0.3)',
+  },
+  noConvSelected: {
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    margin: 'auto',
+    textAlign: 'center',
+    padding: '40px',
+  },
 }

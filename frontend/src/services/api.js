@@ -29,6 +29,8 @@ api.interceptors.response.use(
 )
 
 export const authAPI = {
+  sendOtp: (data) => api.post('/auth/send-otp/', data),
+  verifyOtp: (data) => api.post('/auth/verify-otp/', data),
   register: (data) => api.post('/auth/register/', data),
   login: (data) => api.post('/auth/login/', data),
   logout: () => api.post('/auth/logout/'),
@@ -39,7 +41,7 @@ export const productsAPI = {
   getAll: (params) => api.get('/products/', { params }),
   getById: (slug) => api.get(`/products/${slug}/`),
   create: (data) => api.post('/products/', data),
-  update: (slug, data) => api.put(`/products/${slug}/`, data),
+  update: (slug, data) => api.patch(`/products/${slug}/`, data),
   delete: (slug) => api.delete(`/products/${slug}/`),
   myListings: () => api.get('/products/my_listings/'),
   addReview: (slug, data) => api.post(`/products/${slug}/add_review/`, data),

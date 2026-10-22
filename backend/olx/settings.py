@@ -11,8 +11,15 @@ from dotenv import load_dotenv
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-env_path = os.path.join(BASE_DIR, '..', '.env')
-load_dotenv(env_path)
+# Load .env from project root or backend folder
+env_path_root = os.path.join(BASE_DIR, '..', '.env')
+env_path_local = os.path.join(BASE_DIR, '.env')
+if os.path.exists(env_path_root):
+    load_dotenv(env_path_root)
+elif os.path.exists(env_path_local):
+    load_dotenv(env_path_local)
+else:
+    load_dotenv()
 
 
 SECRET_KEY = os.environ.get(
@@ -20,16 +27,18 @@ SECRET_KEY = os.environ.get(
     'django-insecure-dev-only-key-change-in-production'
 )
 
-DEBUG = os.environ.get('DJANGO_DEBUG', 'False') == 'True'
+DEBUG = os.environ.get('DJANGO_DEBUG', 'True').lower() in ('true', '1', 'yes')
 
 ALLOWED_HOSTS = [
     host.strip()
     for host in os.environ.get(
         'DJANGO_ALLOWED_HOSTS',
-        'localhost,127.0.0.1'
+        'localhost,127.0.0.1,0.0.0.0'
     ).split(',')
     if host.strip()
 ]
+if 'testserver' not in ALLOWED_HOSTS:
+    ALLOWED_HOSTS.append('testserver')
 
 
 INSTALLED_APPS = [
@@ -87,7 +96,7 @@ DATABASES = {
     'default': {
         'ENGINE': os.environ.get(
             'DB_ENGINE',
-            'django.db.backends.mysql'
+            'django.db.backends.sqlite3'
         ),
     }
 }

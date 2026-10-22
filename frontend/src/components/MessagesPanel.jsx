@@ -1,11 +1,14 @@
 import { useState, useEffect, useRef } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
+import { 
+  FiX, FiSend, FiImage, FiMessageSquare, FiExternalLink, 
+  FiCheck, FiChevronRight 
+} from 'react-icons/fi'
+import { Link } from 'react-router-dom'
 import { conversationsAPI } from '../services/api'
 import { useAuth } from '../context/AuthContext'
 
 export default function MessagesPanel({ isOpen, onClose }) {
-  const navigate = useNavigate()
   const { user } = useAuth()
   const [conversations, setConversations] = useState([])
   const [activeConversation, setActiveConversation] = useState(null)
@@ -15,6 +18,7 @@ export default function MessagesPanel({ isOpen, onClose }) {
   const [imagePreview, setImagePreview] = useState(null)
   const [sending, setSending] = useState(false)
   const [loading, setLoading] = useState(true)
+
   const messagesEndRef = useRef(null)
   const fileInputRef = useRef(null)
 
@@ -31,20 +35,20 @@ export default function MessagesPanel({ isOpen, onClose }) {
   }, [activeConversation])
 
   useEffect(() => {
-    scrollToBottom()
-  }, [messages])
-
-  const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }
+  }, [messages])
 
   const fetchConversations = async () => {
     setLoading(true)
     try {
       const res = await conversationsAPI.getAll()
-      setConversations(res.data.results || res.data)
+      const convList = res.data.results || res.data
+      setConversations(convList)
+      if (convList.length > 0 && !activeConversation) {
+        setActiveConversation(convList[0])
+      }
     } catch (err) {
-      console.error('Failed to fetch conversations:', err)
+      console.error(err)
     } finally {
       setLoading(false)
     }
@@ -56,12 +60,8 @@ export default function MessagesPanel({ isOpen, onClose }) {
       setMessages(res.data)
       await conversationsAPI.markRead(convId)
     } catch (err) {
-      console.error('Failed to fetch messages:', err)
+      console.error(err)
     }
-  }
-
-  const handleSelectConversation = (conv) => {
-    setActiveConversation(conv)
   }
 
   const handleImageSelect = (e) => {
@@ -91,7 +91,7 @@ export default function MessagesPanel({ isOpen, onClose }) {
       await fetchMessages(activeConversation.id)
       await fetchConversations()
     } catch (err) {
-      console.error('Failed to send message:', err)
+      console.error(err)
       setMessageInput(text)
       setSelectedImage(image)
     } finally {
@@ -99,235 +99,210 @@ export default function MessagesPanel({ isOpen, onClose }) {
     }
   }
 
-  const handleDeleteMessage = async (messageId) => {
-    if (!window.confirm('Delete this message?')) return
-    try {
-      await conversationsAPI.deleteMessage(activeConversation.id, messageId)
-      await fetchMessages(activeConversation.id)
-      await fetchConversations()
-    } catch (err) {
-      console.error('Failed to delete message:', err)
-    }
-  }
-
-  const handleKeyPress = (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault()
-      handleSendMessage(e)
-    }
-  }
-
-  const getOtherUser = (conv) => {
-    if (!conv || !user) return null
-    return conv.other_user
-  }
-
-  const formatTime = (dateStr) => {
-    const date = new Date(dateStr)
-    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-  }
+  if (!isOpen) return null
 
   return (
-    <AnimatePresence>
-      {isOpen && (
-        <motion.div
-          style={styles.overlay}
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          onClick={onClose}
-        >
-          <motion.div
-            style={styles.panel}
-            initial={{ x: '100%' }}
-            animate={{ x: 0 }}
-            exit={{ x: '100%' }}
-            transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div style={styles.header}>
-              <h3>Messages</h3>
-              <motion.button
-                onClick={onClose}
-                style={styles.closeBtn}
-                whileHover={{ scale: 1.1, rotate: 90 }}
-                whileTap={{ scale: 0.9 }}
-              >
-                ✕
-              </motion.button>
-            </div>
+    <div style={styles.overlay}>
+      <motion.div
+        style={styles.backdrop}
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        onClick={onClose}
+      />
 
-            <div style={styles.content}>
-              <div style={styles.sidebar}>
-                {loading ? (
-                  <div style={styles.loadingText}>Loading...</div>
-                ) : conversations.length === 0 ? (
-                  <div style={styles.emptyText}>No messages yet</div>
-                ) : (
-                  conversations.map((conv, index) => (
-                    <motion.div
-                      key={conv.id}
-                      onClick={() => handleSelectConversation(conv)}
-                      style={{
-                        ...styles.conversationItem,
-                        ...(activeConversation?.id === conv.id ? styles.activeConv : {})
-                      }}
-                      initial={{ opacity: 0, x: -20 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      transition={{ delay: index * 0.05 }}
-                      whileHover={{ backgroundColor: '#f8f9fa' }}
-                    >
-                      <div style={styles.convInfo}>
-                        <strong>{getOtherUser(conv)?.username}</strong>
-                        <div style={styles.convProduct}>{conv.product?.name}</div>
-                        <div style={styles.convLastMsg}>{conv.last_message?.message || (conv.last_message?.image ? '📷 Photo' : 'No messages')}</div>
-                      </div>
-                      {conv.unread_count > 0 && (
-                        <motion.span
-                          style={styles.badge}
-                          initial={{ scale: 0 }}
-                          animate={{ scale: 1 }}
-                          transition={{ type: 'spring', stiffness: 500 }}
-                        >
-                          {conv.unread_count}
-                        </motion.span>
-                      )}
-                    </motion.div>
-                  ))
-                )}
+      <motion.div
+        style={styles.drawer}
+        initial={{ x: '100%' }}
+        animate={{ x: 0 }}
+        exit={{ x: '100%' }}
+        transition={{ type: 'spring', damping: 26, stiffness: 220 }}
+      >
+        {/* Drawer Header */}
+        <div style={styles.header}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <FiMessageSquare style={{ fontSize: '18px', color: '#00a49f' }} />
+            <h3 style={styles.headerTitle}>Instant Chat</h3>
+          </div>
+          <button onClick={onClose} style={styles.closeBtn} type="button">
+            <FiX />
+          </button>
+        </div>
+
+        {/* 2-Section Content */}
+        <div style={styles.body}>
+          {/* Conversation Selector Strip */}
+          {conversations.length > 1 && (
+            <div style={styles.convStrip}>
+              {conversations.map((c) => (
+                <button
+                  key={c.id}
+                  onClick={() => setActiveConversation(c)}
+                  style={{
+                    ...styles.stripTab,
+                    backgroundColor: activeConversation?.id === c.id ? '#002f34' : '#f1f5f9',
+                    color: activeConversation?.id === c.id ? '#fff' : '#334155',
+                  }}
+                  type="button"
+                >
+                  <span style={styles.stripAvatar}>
+                    {c.other_user?.username?.charAt(0).toUpperCase()}
+                  </span>
+                  <span style={styles.stripName}>{c.other_user?.username}</span>
+                  {c.unread_count > 0 && <span style={styles.stripBadge}>{c.unread_count}</span>}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Active Chat Header */}
+          {activeConversation ? (
+            <>
+              <div style={styles.chatInfoBar}>
+                <div>
+                  <h4 style={styles.otherUserName}>
+                    {activeConversation.other_user?.username}
+                  </h4>
+                  <p style={styles.chatItemNotice}>
+                    Ad: {activeConversation.product?.name} &bull; ₹{Number(activeConversation.product?.price || 0).toLocaleString('en-IN')}
+                  </p>
+                </div>
+                <Link
+                  to={`/products/${activeConversation.product?.slug}`}
+                  onClick={onClose}
+                  style={styles.viewAdLink}
+                >
+                  View Ad <FiExternalLink />
+                </Link>
               </div>
 
-              <div style={styles.chatArea}>
-                {activeConversation ? (
-                  <>
-                    <motion.div
-                      style={styles.chatHeader}
-                      initial={{ opacity: 0, y: -10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ duration: 0.3 }}
-                    >
-                      <strong>{getOtherUser(activeConversation)?.username}</strong>
-                      <div style={styles.chatProduct}>{activeConversation.product?.name}</div>
-                    </motion.div>
-
-                    <div style={styles.messagesList}>
-                      <AnimatePresence>
-                        {messages.map((msg, index) => (
-                          <motion.div
-                            key={msg.id}
+              {/* Messages Area */}
+              <div style={styles.messagesContainer}>
+                {messages.length === 0 ? (
+                  <div style={styles.emptyMessages}>
+                    <p style={{ fontWeight: 600, color: '#002f34' }}>Start the conversation!</p>
+                    <p style={{ fontSize: '12px', color: '#64748b', marginTop: '4px' }}>
+                      Ask questions, verify details, and make your deal.
+                    </p>
+                  </div>
+                ) : (
+                  messages.map((msg) => {
+                    const isMe = msg.sender_id === user?.id
+                    return (
+                      <div
+                        key={msg.id}
+                        style={{
+                          ...styles.msgRow,
+                          justifyContent: isMe ? 'flex-end' : 'flex-start',
+                        }}
+                      >
+                        <div
+                          style={{
+                            ...styles.bubble,
+                            backgroundColor: isMe ? '#002f34' : '#ffffff',
+                            color: isMe ? '#ffffff' : '#0f172a',
+                            borderBottomRightRadius: isMe ? '4px' : '14px',
+                            borderBottomLeftRadius: isMe ? '14px' : '4px',
+                          }}
+                        >
+                          {msg.image_url && (
+                            <img src={msg.image_url} alt="" style={styles.bubbleImg} />
+                          )}
+                          {msg.message && <p style={styles.bubbleText}>{msg.message}</p>}
+                          <div
                             style={{
-                              ...styles.messageBubble,
-                              ...(msg.sender_id === user?.id ? styles.myMsg : styles.theirMsg)
+                              ...styles.bubbleMeta,
+                              color: isMe ? 'rgba(255,255,255,0.7)' : '#94a3b8',
                             }}
-                            initial={{ opacity: 0, y: 20, scale: 0.95 }}
-                            animate={{ opacity: 1, y: 0, scale: 1 }}
-                            exit={{ opacity: 0, scale: 0.95 }}
-                            transition={{ duration: 0.3, delay: index * 0.03 }}
                           >
-                            {msg.image_url && (
-                              <motion.img
-                                src={msg.image_url}
-                                alt=""
-                                style={styles.messageImage}
-                                whileHover={{ scale: 1.02 }}
+                            <span>
+                              {new Date(msg.created).toLocaleTimeString([], {
+                                hour: '2-digit',
+                                minute: '2-digit',
+                              })}
+                            </span>
+                            {isMe && (
+                              <FiCheck
+                                style={{
+                                  fontSize: '12px',
+                                  color: msg.is_read ? '#5eead4' : 'rgba(255,255,255,0.5)',
+                                }}
                               />
                             )}
-                            {msg.message && <div style={styles.messageText}>{msg.message}</div>}
-                            <div style={styles.messageFooter}>
-                              <span style={styles.messageTime}>{formatTime(msg.created)}</span>
-                              {msg.sender_id === user?.id && (
-                                <motion.button
-                                  onClick={() => handleDeleteMessage(msg.id)}
-                                  style={styles.deleteBtn}
-                                  title="Delete message"
-                                  whileHover={{ scale: 1.2 }}
-                                  whileTap={{ scale: 0.8 }}
-                                >
-                                  🗑️
-                                </motion.button>
-                              )}
-                            </div>
-                          </motion.div>
-                        ))}
-                      </AnimatePresence>
-                      <div ref={messagesEndRef} />
-                    </div>
-
-                    <AnimatePresence>
-                      {imagePreview && (
-                        <motion.div
-                          style={styles.imagePreview}
-                          initial={{ opacity: 0, height: 0 }}
-                          animate={{ opacity: 1, height: 'auto' }}
-                          exit={{ opacity: 0, height: 0 }}
-                        >
-                          <img src={imagePreview} alt="Preview" style={styles.previewImage} />
-                          <motion.button
-                            onClick={() => { setSelectedImage(null); setImagePreview(null); if (fileInputRef.current) fileInputRef.current.value = '' }}
-                            style={styles.removeImageBtn}
-                            whileHover={{ scale: 1.1 }}
-                            whileTap={{ scale: 0.9 }}
-                          >
-                            ✕
-                          </motion.button>
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
-
-                    <form onSubmit={handleSendMessage} style={styles.messageForm}>
-                      <input
-                        type="file"
-                        ref={fileInputRef}
-                        accept="image/*"
-                        onChange={handleImageSelect}
-                        style={{ display: 'none' }}
-                      />
-                      <motion.button
-                        type="button"
-                        onClick={() => fileInputRef.current?.click()}
-                        style={styles.imageBtn}
-                        whileHover={{ scale: 1.1 }}
-                        whileTap={{ scale: 0.9 }}
-                      >
-                        📷
-                      </motion.button>
-                      <input
-                        type="text"
-                        value={messageInput}
-                        onChange={(e) => setMessageInput(e.target.value)}
-                        onKeyPress={handleKeyPress}
-                        placeholder="Type a message..."
-                        style={styles.messageInput}
-                        disabled={sending}
-                      />
-                      <motion.button
-                        type="submit"
-                        disabled={sending || (!messageInput.trim() && !selectedImage)}
-                        style={styles.sendBtn}
-                        whileHover={{ scale: 1.05 }}
-                        whileTap={{ scale: 0.95 }}
-                      >
-                        Send
-                      </motion.button>
-                    </form>
-                  </>
-                ) : (
-                  <motion.div
-                    style={styles.noChat}
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    transition={{ duration: 0.5 }}
-                  >
-                    <div style={styles.noChatIcon}>&#128172;</div>
-                    <p>Select a conversation</p>
-                  </motion.div>
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })
                 )}
+                <div ref={messagesEndRef} />
               </div>
+
+              {/* Chat Input */}
+              <div style={styles.footer}>
+                {imagePreview && (
+                  <div style={styles.previewBadge}>
+                    <span>Image attached</span>
+                    <button
+                      onClick={() => {
+                        setSelectedImage(null)
+                        setImagePreview(null)
+                      }}
+                      style={{ color: '#ef4444' }}
+                      type="button"
+                    >
+                      <FiX />
+                    </button>
+                  </div>
+                )}
+                <form onSubmit={handleSendMessage} style={styles.form}>
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    style={styles.attachBtn}
+                  >
+                    <FiImage />
+                  </button>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    onChange={handleImageSelect}
+                    style={{ display: 'none' }}
+                  />
+
+                  <input
+                    type="text"
+                    placeholder="Type a message..."
+                    value={messageInput}
+                    onChange={(e) => setMessageInput(e.target.value)}
+                    style={styles.input}
+                  />
+
+                  <motion.button
+                    type="submit"
+                    style={styles.sendBtn}
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    disabled={sending || (!messageInput.trim() && !selectedImage)}
+                  >
+                    <FiSend />
+                  </motion.button>
+                </form>
+              </div>
+            </>
+          ) : (
+            <div style={{ padding: '60px 20px', textAlign: 'center', color: '#94a3b8' }}>
+              <FiMessageSquare style={{ fontSize: '42px', marginBottom: '12px' }} />
+              <p style={{ fontWeight: 600, color: '#002f34' }}>No Active Chat</p>
+              <p style={{ fontSize: '13px', marginTop: '4px' }}>
+                Open an ad and click &quot;Chat with Seller&quot; to begin.
+              </p>
             </div>
-          </motion.div>
-        </motion.div>
-      )}
-    </AnimatePresence>
+          )}
+        </div>
+      </motion.div>
+    </div>
   )
 }
 
@@ -338,153 +313,218 @@ const styles = {
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    zIndex: 1000,
+    zIndex: 9999,
     display: 'flex',
     justifyContent: 'flex-end',
   },
-  panel: {
-    width: '33%',
-    minWidth: '350px',
-    maxWidth: '450px',
+  backdrop: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(15, 23, 42, 0.45)',
+    backdropFilter: 'blur(3px)',
+  },
+  drawer: {
+    position: 'relative',
+    width: '100%',
+    maxWidth: '460px',
     height: '100%',
-    backgroundColor: '#fff',
-    boxShadow: '-4px 0 20px rgba(0,0,0,0.2)',
+    backgroundColor: '#ffffff',
     display: 'flex',
     flexDirection: 'column',
+    boxShadow: '-10px 0 30px rgba(0, 0, 0, 0.15)',
+    zIndex: 1,
   },
   header: {
+    padding: '16px 20px',
+    backgroundColor: '#ffffff',
+    borderBottom: '1px solid #e2e8f0',
     display: 'flex',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: '16px 20px',
-    borderBottom: '1px solid #e9ecef',
-    backgroundColor: '#1a1a2e',
-    color: '#fff',
+  },
+  headerTitle: {
+    fontSize: '16px',
+    fontWeight: '800',
+    color: '#002f34',
   },
   closeBtn: {
-    background: 'none',
-    color: '#fff',
-    fontSize: '20px',
-    cursor: 'pointer',
-  },
-  content: {
+    width: '32px',
+    height: '32px',
+    borderRadius: '8px',
+    backgroundColor: '#f1f5f9',
     display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontSize: '16px',
+    color: '#64748b',
+  },
+  body: {
     flex: 1,
+    display: 'flex',
+    flexDirection: 'column',
     overflow: 'hidden',
+    backgroundColor: '#f8fafc',
   },
-  sidebar: {
-    width: '40%',
-    borderRight: '1px solid #e9ecef',
-    overflow: 'auto',
+  convStrip: {
+    display: 'flex',
+    gap: '8px',
+    padding: '10px 16px',
+    backgroundColor: '#fff',
+    borderBottom: '1px solid #e2e8f0',
+    overflowX: 'auto',
   },
-  loadingText: {
-    padding: '20px',
-    textAlign: 'center',
-    color: '#b2bec3',
+  stripTab: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '6px',
+    padding: '6px 12px',
+    borderRadius: '999px',
+    fontSize: '12.5px',
+    fontWeight: '700',
+    whiteSpace: 'nowrap',
+    transition: 'all 0.15s',
   },
-  emptyText: {
-    padding: '20px',
-    textAlign: 'center',
-    color: '#b2bec3',
+  stripAvatar: {
+    width: '20px',
+    height: '20px',
+    borderRadius: '50%',
+    backgroundColor: '#00a49f',
+    color: '#fff',
+    fontSize: '10px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  conversationItem: {
-    padding: '12px',
-    borderBottom: '1px solid #f0f0f0',
-    cursor: 'pointer',
+  stripName: {
+    maxWidth: '80px',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+  },
+  stripBadge: {
+    backgroundColor: '#ff5630',
+    color: '#fff',
+    fontSize: '9px',
+    padding: '1px 5px',
+    borderRadius: '999px',
+  },
+  chatInfoBar: {
+    padding: '12px 20px',
+    backgroundColor: '#ffffff',
+    borderBottom: '1px solid #e2e8f0',
     display: 'flex',
     justifyContent: 'space-between',
     alignItems: 'center',
   },
-  activeConv: {
-    backgroundColor: '#f8f9fa',
+  otherUserName: {
+    fontSize: '14px',
+    fontWeight: '800',
+    color: '#002f34',
   },
-  convInfo: { flex: 1, minWidth: 0 },
-  convProduct: { fontSize: '11px', color: '#636e72' },
-  convLastMsg: { fontSize: '12px', color: '#b2bec3', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
-  badge: { backgroundColor: '#e94560', color: '#fff', padding: '2px 6px', borderRadius: '10px', fontSize: '10px', fontWeight: 700 },
-  chatArea: {
+  chatItemNotice: {
+    fontSize: '11.5px',
+    color: '#64748b',
+    marginTop: '2px',
+  },
+  viewAdLink: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '4px',
+    fontSize: '11.5px',
+    fontWeight: '700',
+    color: '#00a49f',
+  },
+  messagesContainer: {
     flex: 1,
+    overflowY: 'auto',
+    padding: '18px 20px',
     display: 'flex',
     flexDirection: 'column',
+    gap: '10px',
   },
-  chatHeader: {
-    padding: '12px 16px',
-    borderBottom: '1px solid #e9ecef',
-    backgroundColor: '#fff',
+  emptyMessages: {
+    margin: 'auto',
+    textAlign: 'center',
+    padding: '20px',
   },
-  chatProduct: { fontSize: '12px', color: '#636e72' },
-  messagesList: {
-    flex: 1,
-    overflow: 'auto',
-    padding: '16px',
+  msgRow: {
     display: 'flex',
-    flexDirection: 'column',
-    gap: '8px',
-    backgroundColor: '#f8f9fa',
   },
-  messageBubble: {
-    maxWidth: '80%',
+  bubble: {
+    maxWidth: '75%',
     padding: '10px 14px',
-    borderRadius: '16px',
-    wordWrap: 'break-word',
+    borderRadius: '14px',
+    boxShadow: '0 2px 6px rgba(0,0,0,0.04)',
   },
-  myMsg: {
-    alignSelf: 'flex-end',
-    backgroundColor: '#e94560',
-    color: '#fff',
-    borderBottomRightRadius: '4px',
+  bubbleImg: {
+    maxWidth: '200px',
+    borderRadius: '6px',
+    marginBottom: '6px',
   },
-  theirMsg: {
-    alignSelf: 'flex-start',
-    backgroundColor: '#e9ecef',
-    color: '#1a1a2e',
-    borderBottomLeftRadius: '4px',
+  bubbleText: {
+    fontSize: '13.5px',
+    lineHeight: '1.4',
+    wordBreak: 'break-word',
   },
-  messageText: { fontSize: '13px', lineHeight: 1.4 },
-  messageTime: { fontSize: '10px', opacity: 0.7 },
-  messageFooter: { display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px' },
-  deleteBtn: { background: 'none', fontSize: '12px', cursor: 'pointer', opacity: 0.7, padding: '2px' },
-  messageImage: { maxWidth: '200px', maxHeight: '200px', borderRadius: '8px', marginBottom: '4px' },
-  imagePreview: { position: 'relative', padding: '8px 12px', backgroundColor: '#fff', borderTop: '1px solid #e9ecef' },
-  previewImage: { maxWidth: '80px', maxHeight: '80px', borderRadius: '8px' },
-  removeImageBtn: { position: 'absolute', top: '8px', left: '100px', backgroundColor: '#e94560', color: '#fff', borderRadius: '50%', width: '20px', height: '20px', fontSize: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center' },
-  messageForm: {
+  bubbleMeta: {
     display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: '4px',
+    fontSize: '10px',
+    marginTop: '3px',
+  },
+  footer: {
+    padding: '14px 20px',
+    backgroundColor: '#ffffff',
+    borderTop: '1px solid #e2e8f0',
+  },
+  previewBadge: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '6px',
+    padding: '4px 8px',
+    backgroundColor: '#f1f5f9',
+    borderRadius: '6px',
+    fontSize: '11px',
+    marginBottom: '8px',
+  },
+  form: {
+    display: 'flex',
+    alignItems: 'center',
     gap: '8px',
-    padding: '12px',
-    borderTop: '1px solid #e9ecef',
-    backgroundColor: '#fff',
   },
-  imageBtn: {
-    backgroundColor: '#f8f9fa',
-    padding: '8px 12px',
-    borderRadius: '20px',
-    fontSize: '18px',
-  },
-  messageInput: {
-    flex: 1,
-    padding: '8px 14px',
-    border: '2px solid #e9ecef',
-    borderRadius: '20px',
-    fontSize: '13px',
-  },
-  sendBtn: {
-    backgroundColor: '#e94560',
-    color: '#fff',
-    padding: '8px 16px',
-    borderRadius: '20px',
-    fontWeight: 600,
-    fontSize: '13px',
-    boxShadow: '0 4px 15px rgba(233, 69, 96, 0.3)',
-  },
-  noChat: {
-    flex: 1,
+  attachBtn: {
+    width: '38px',
+    height: '38px',
+    borderRadius: '10px',
+    backgroundColor: '#f1f5f9',
+    color: '#64748b',
     display: 'flex',
-    flexDirection: 'column',
     alignItems: 'center',
     justifyContent: 'center',
-    color: '#b2bec3',
+    fontSize: '16px',
   },
-  noChatIcon: { fontSize: '48px', marginBottom: '12px', opacity: 0.5 },
+  input: {
+    flex: 1,
+    padding: '10px 14px',
+    borderRadius: '10px',
+    border: '1.5px solid #e2e8f0',
+    backgroundColor: '#f8fafc',
+    fontSize: '13.5px',
+    color: '#0f172a',
+  },
+  sendBtn: {
+    width: '38px',
+    height: '38px',
+    borderRadius: '10px',
+    background: 'linear-gradient(135deg, #002f34 0%, #00a49f 100%)',
+    color: '#ffffff',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontSize: '15px',
+  },
 }

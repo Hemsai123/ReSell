@@ -1,3 +1,5 @@
+import re
+import random
 from django.shortcuts import render
 from django.core.paginator import Paginator
 from django.db.models import Q, Count, Max
@@ -16,7 +18,9 @@ from .serializers import (
     CategorySerializer, BrandSerializer, ReviewSerializer, MessageSerializer,
     WishlistSerializer, NotificationSerializer, ConversationSerializer,
 )
+from accounts.models import Profile, PhoneOTP
 from accounts.serializers import RegisterSerializer, UserSerializer
+from accounts.sms_service import send_sms_otp
 
 
 def productlist(request, category_slug=None):
@@ -67,6 +71,8 @@ class BrandViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticatedOrReadOnly]
 
 
+from rest_framework.exceptions import PermissionDenied
+
 class ProductViewSet(viewsets.ModelViewSet):
     queryset = Product.objects.select_related('category', 'brand', 'owner').all()
     permission_classes = [IsAuthenticatedOrReadOnly]
@@ -87,11 +93,44 @@ class ProductViewSet(viewsets.ModelViewSet):
         queryset = super().get_queryset()
         category_slug = self.request.query_params.get('category')
         location = self.request.query_params.get('location')
+        condition = self.request.query_params.get('condition')
+        min_price = self.request.query_params.get('min_price')
+        max_price = self.request.query_params.get('max_price')
+        brand_id = self.request.query_params.get('brand')
+        status_val = self.request.query_params.get('status')
+
         if category_slug:
             queryset = queryset.filter(category__slug=category_slug)
         if location:
             queryset = queryset.filter(location__icontains=location)
+        if condition and condition.lower() != 'all':
+            queryset = queryset.filter(condition__iexact=condition)
+        if min_price:
+            try:
+                queryset = queryset.filter(price__gte=float(min_price))
+            except ValueError:
+                pass
+        if max_price:
+            try:
+                queryset = queryset.filter(price__lte=float(max_price))
+            except ValueError:
+                pass
+        if brand_id:
+            queryset = queryset.filter(brand_id=brand_id)
+        if status_val:
+            queryset = queryset.filter(status__iexact=status_val)
+
         return queryset
+
+    def perform_update(self, serializer):
+        if serializer.instance.owner != self.request.user and not self.request.user.is_staff:
+            raise PermissionDenied("You can only edit your own listings.")
+        serializer.save()
+
+    def perform_destroy(self, instance):
+        if instance.owner != self.request.user and not self.request.user.is_staff:
+            raise PermissionDenied("You can only delete your own listings.")
+        instance.delete()
 
     @action(detail=False, methods=['get'], permission_classes=[IsAuthenticated])
     def my_listings(self, request):
@@ -114,10 +153,10 @@ class ProductViewSet(viewsets.ModelViewSet):
         wishlist_item = Wishlist.objects.filter(user=request.user, product=product)
         if wishlist_item.exists():
             wishlist_item.delete()
-            return Response({'status': 'removed from wishlist'})
+            return Response({'status': 'removed from wishlist', 'is_wishlisted': False})
         else:
             Wishlist.objects.create(user=request.user, product=product)
-            return Response({'status': 'added to wishlist'})
+            return Response({'status': 'added to wishlist', 'is_wishlisted': True})
 
     @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated])
     def mark_sold(self, request, slug=None):
@@ -250,6 +289,63 @@ class NotificationViewSet(viewsets.ModelViewSet):
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
+def send_otp(request):
+    raw_phone = request.data.get('phone_number', '').strip()
+    cleaned_phone = re.sub(r'[\s\-\(\)\+]', '', raw_phone)
+    if not cleaned_phone or len(cleaned_phone) < 10:
+        return Response({'error': 'Please enter a valid 10-digit mobile number.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    # Check if already registered
+    if Profile.objects.filter(phone_number=cleaned_phone).exists():
+        return Response({'error': 'This mobile number is already registered. Please log in.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    # Generate 6-digit OTP
+    otp_code = str(random.randint(100000, 999999))
+    PhoneOTP.objects.create(
+        phone_number=cleaned_phone,
+        otp=otp_code,
+        is_verified=False
+    )
+
+    # Dispatch SMS to the recipient's mobile handset via SMS carrier gateway
+    send_sms_otp(cleaned_phone, otp_code)
+
+    formatted_number = f"+91 {cleaned_phone[-10:]}" if len(cleaned_phone) >= 10 else cleaned_phone
+    return Response({
+        'message': f'Verification OTP code has been sent via SMS to {formatted_number}. Please check your phone.',
+        'phone_number': cleaned_phone,
+    }, status=status.HTTP_200_OK)
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def verify_otp(request):
+    raw_phone = request.data.get('phone_number', '').strip()
+    otp_code = str(request.data.get('otp', '')).strip()
+    cleaned_phone = re.sub(r'[\s\-\(\)\+]', '', raw_phone)
+
+    if not cleaned_phone or not otp_code:
+        return Response({'error': 'Both mobile number and OTP code are required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    otp_record = PhoneOTP.objects.filter(phone_number=cleaned_phone, otp=otp_code).order_by('-created_at').first()
+
+    if not otp_record:
+        return Response({'error': 'Invalid OTP code. Please check and try again.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    if otp_record.is_expired():
+        return Response({'error': 'This OTP code has expired. Please request a new OTP.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    otp_record.is_verified = True
+    otp_record.save()
+
+    return Response({
+        'verified': True,
+        'message': 'Mobile number verified successfully!'
+    }, status=status.HTTP_200_OK)
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
 def register(request):
     serializer = RegisterSerializer(data=request.data)
     if serializer.is_valid():
@@ -265,16 +361,28 @@ def register(request):
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def login(request):
-    username = request.data.get('username')
-    password = request.data.get('password')
-    user = authenticate(username=username, password=password)
+    username_or_phone = request.data.get('username', '').strip()
+    password = request.data.get('password', '')
+
+    if not username_or_phone or not password:
+        return Response({'error': 'Please enter your username/mobile and password.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    target_username = username_or_phone
+    cleaned_phone = re.sub(r'[\s\-\(\)\+]', '', username_or_phone)
+
+    # Check if a user profile exists with this mobile number
+    profile = Profile.objects.filter(phone_number=cleaned_phone).first()
+    if profile:
+        target_username = profile.user.username
+
+    user = authenticate(username=target_username, password=password)
     if user:
         token, _ = Token.objects.get_or_create(user=user)
         return Response({
             'token': token.key,
             'user': UserSerializer(user).data,
         })
-    return Response({'error': 'Invalid credentials'}, status=status.HTTP_401_UNAUTHORIZED)
+    return Response({'error': 'Invalid username/mobile or password.'}, status=status.HTTP_401_UNAUTHORIZED)
 
 
 @api_view(['POST'])
